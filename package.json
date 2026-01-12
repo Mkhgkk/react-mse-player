@@ -1,0 +1,48 @@
+{
+  "name": "react-mse-player",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "React component for streaming video using Media Source Extensions (MSE) - designed for go2rtc",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "react",
+    "mse",
+    "media-source-extensions",
+    "video",
+    "streaming",
+    "go2rtc",
+    "webrtc"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0",
+    "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-babel": "^6.0.4",
+    "@babel/core": "^7.23.7",
+    "@babel/preset-react": "^7.23.3",
+    "@types/react": "^18.2.48",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "rollup": "^4.9.5",
+    "rollup-plugin-peer-deps-external": "^2.2.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AlexxIT/go2rtc"
+  }
+}

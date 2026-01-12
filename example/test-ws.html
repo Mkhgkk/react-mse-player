@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status">Testing...</div>
+    <video id="video" controls autoplay muted style="width: 640px; height: 480px; background: black;"></video>
+
+    <script>
+        const video = document.getElementById('video');
+        const status = document.getElementById('status');
+
+        const wsURL = 'ws://localhost:1984/api/ws?src=approt';
+        console.log('Connecting to:', wsURL);
+        status.textContent = 'Connecting to ' + wsURL;
+
+        const ws = new WebSocket(wsURL);
+        ws.binaryType = 'arraybuffer';
+
+        ws.addEventListener('open', () => {
+            console.log('WebSocket OPEN');
+            status.textContent = 'Connected! Setting up MSE...';
+
+            // Check for MediaSource support
+            if ('MediaSource' in window) {
+                console.log('MediaSource supported');
+                const ms = new MediaSource();
+
+                ms.addEventListener('sourceopen', () => {
+                    console.log('MediaSource opened');
+                    status.textContent = 'MediaSource opened, requesting codecs...';
+
+                    // Request MSE stream with supported codecs
+                    const codecs = 'avc1.640029,mp4a.40.2';
+                    console.log('Requesting codecs:', codecs);
+                    ws.send(JSON.stringify({ type: 'mse', value: codecs }));
+                }, { once: true });
+
+                video.src = URL.createObjectURL(ms);
+
+                ws.addEventListener('message', (ev) => {
+                    if (typeof ev.data === 'string') {
+                        const msg = JSON.parse(ev.data);
+                        console.log('Message:', msg);
+
+                        if (msg.type === 'mse') {
+                            status.textContent = 'Streaming! Codec: ' + msg.value;
+                            console.log('Setting up SourceBuffer with:', msg.value);
+
+                            const sb = ms.addSourceBuffer(msg.value);
+                            sb.mode = 'segments';
+
+                            ws.addEventListener('message', (ev2) => {
+                                if (typeof ev2.data !== 'string') {
+                                    console.log('Received binary data:', ev2.data.byteLength, 'bytes');
+                                    if (!sb.updating) {
+                                        try {
+                                            sb.appendBuffer(ev2.data);
+                                        } catch (e) {
+                                            console.error('appendBuffer error:', e);
+                                        }
+                                    }
+                                }
+                            });
+                        } else if (msg.type === 'error') {
+                            status.textContent = 'Error: ' + msg.value;
+                            console.error('Stream error:', msg.value);
+                        }
+                    }
+                });
+            } else {
+                status.textContent = 'MediaSource not supported!';
+                console.error('MediaSource not supported');
+            }
+        });
+
+        ws.addEventListener('error', (err) => {
+            console.error('WebSocket error:', err);
+            status.textContent = 'WebSocket error - check console';
+        });
+
+        ws.addEventListener('close', () => {
+            console.log('WebSocket closed');
+            status.textContent = 'WebSocket closed';
+        });
+    </script>
+</body>
+</html>
