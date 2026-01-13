@@ -33,21 +33,38 @@ const MSEVideoStream = ({
   const onStatusRef = useRef(onStatus);
   const onErrorRef = useRef(onError);
 
-  useEffect(() => { onStatusRef.current = onStatus; }, [onStatus]);
-  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  useEffect(() => {
+    onStatusRef.current = onStatus;
+  }, [onStatus]);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
-  const updateStatus = (s) => { setStatus(s); onStatusRef.current?.(s); };
-  const updateError = (e) => { setError(e); onErrorRef.current?.(e); };
+  const updateStatus = (s) => {
+    setStatus(s);
+    onStatusRef.current?.(s);
+  };
+  const updateError = (e) => {
+    setError(e);
+    onErrorRef.current?.(e);
+  };
 
   const codecsRef = useRef([
-    "avc1.640029", "avc1.64002A", "avc1.640033",
+    "avc1.640029",
+    "avc1.64002A",
+    "avc1.640033",
     "hvc1.1.6.L153.B0",
-    "mp4a.40.2", "mp4a.40.5", "flac", "opus",
+    "mp4a.40.2",
+    "mp4a.40.5",
+    "flac",
+    "opus",
   ]);
 
   const getSupportedCodecs = (isSupported) => {
     return codecsRef.current
-      .filter((codec) => media.includes(codec.includes("vc1") ? "video" : "audio"))
+      .filter((codec) =>
+        media.includes(codec.includes("vc1") ? "video" : "audio")
+      )
       .filter((codec) => isSupported(`video/mp4; codecs="${codec}"`))
       .join();
   };
@@ -84,7 +101,9 @@ const MSEVideoStream = ({
         ws.onmessage = null;
         ws.onclose = null;
         ws.onerror = null;
-        try { ws.close(); } catch (e) {}
+        try {
+          ws.close();
+        } catch (e) {}
       }
 
       if (state.ms) {
@@ -171,7 +190,10 @@ const MSEVideoStream = ({
       if (sb.updating || state.buffer.length > 0) {
         // Queue data - avoid creating new Uint8Array if possible
         const dataView = new Uint8Array(data);
-        if (state.buffer.length + dataView.byteLength <= state.buffer.data.length) {
+        if (
+          state.buffer.length + dataView.byteLength <=
+          state.buffer.data.length
+        ) {
           state.buffer.data.set(dataView, state.buffer.length);
           state.buffer.length += dataView.byteLength;
         }
@@ -227,10 +249,14 @@ const MSEVideoStream = ({
 
       state.ms = new MediaSourceClass();
 
-      state.ms.addEventListener("sourceopen", () => {
-        const codecs = getSupportedCodecs(MediaSourceClass.isTypeSupported);
-        state.ws?.send(JSON.stringify({ type: "mse", value: codecs }));
-      }, { once: true });
+      state.ms.addEventListener(
+        "sourceopen",
+        () => {
+          const codecs = getSupportedCodecs(MediaSourceClass.isTypeSupported);
+          state.ws?.send(JSON.stringify({ type: "mse", value: codecs }));
+        },
+        { once: true }
+      );
 
       if (videoRef.current) {
         if (window.ManagedMediaSource) {
@@ -301,27 +327,64 @@ const MSEVideoStream = ({
     };
   }, [src, media]);
 
+  const isLoading =
+    status === "connecting" ||
+    status === "reconnecting" ||
+    status === "stalled";
+
   return (
-    <div className={className} style={{ position: "relative", width, height, ...style }}>
+    <div
+      className={className}
+      style={{ position: "relative", width, height, ...style }}
+    >
       <video
         ref={videoRef}
         controls={controls}
         playsInline
         muted
         autoPlay
-        style={{ display: "block", width: "100%", height: "100%", backgroundColor: "black" }}
+        style={{
+          display: "block",
+          width: "100%",
+          height: "100%",
+          backgroundColor: "black",
+        }}
       />
+      {isLoading && (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+          }}
+        >
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              border: "4px solid rgba(255,255,255,0.3)",
+              borderTop: "4px solid white",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite",
+            }}
+          />
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
       {showStatusOverlay && status !== "streaming" && (
-        <div style={{
-          position: "absolute",
-          top: 12,
-          right: 12,
-          color: "white",
-          padding: "8px 12px",
-          backgroundColor: "rgba(0,0,0,0.7)",
-          borderRadius: 4,
-          fontSize: 14,
-        }}>
+        <div
+          style={{
+            position: "absolute",
+            top: 12,
+            right: 12,
+            color: "white",
+            padding: "8px 12px",
+            backgroundColor: "rgba(0,0,0,0.7)",
+            borderRadius: 4,
+            fontSize: 14,
+          }}
+        >
           {status === "error" ? `Error: ${error}` : status.toUpperCase()}
         </div>
       )}
