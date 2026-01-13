@@ -1,5 +1,7 @@
 # React MSE Player
 
+[![CI](https://github.com/Mkhgkk/react-mse-player/actions/workflows/ci.yml/badge.svg)](https://github.com/Mkhgkk/react-mse-player/actions/workflows/ci.yml) [![NPM Version](https://img.shields.io/npm/v/react-mse-player)](https://www.npmjs.com/package/react-mse-player) [![NPM Downloads](https://img.shields.io/npm/dm/react-mse-player)](https://www.npmjs.com/package/react-mse-player) [![License](https://img.shields.io/npm/l/react-mse-player)](https://github.com/Mkhgkk/react-mse-player)
+
 A strict, type-safe React component for streaming low-latency video using Media Source Extensions (MSE). Designed for seamless integration with [go2rtc](https://github.com/AlexxIT/go2rtc).
 
 ## Features

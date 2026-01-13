@@ -1,6 +1,6 @@
 {
   "name": "react-mse-player",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "React component for streaming video using Media Source Extensions (MSE) - designed for go2rtc",
   "main": "dist/index.js",
@@ -57,6 +57,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/AlexxIT/go2rtc"
+    "url": "https://github.com/Mkhgkk/react-mse-player"
   }
 }
