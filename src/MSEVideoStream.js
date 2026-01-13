@@ -18,11 +18,13 @@ const MSEVideoStream = ({
     ws: null,
     ms: null,
     sb: null,
+    sbUpdateHandler: null, // Store handler reference for cleanup
     buffer: { data: new Uint8Array(2 * 1024 * 1024), length: 0 },
     lastDataTime: 0,
     reconnectTimer: null,
     stalledCheckTimer: null,
     isMounted: true,
+    isReconnecting: false, // Prevent double reconnect
   });
 
   const [status, setStatus] = useState("connecting");
@@ -55,10 +57,9 @@ const MSEVideoStream = ({
 
     const state = stateRef.current;
     state.isMounted = true;
+    state.isReconnecting = false;
 
     const cleanup = () => {
-      console.log("Cleanup called");
-
       if (state.reconnectTimer) {
         clearTimeout(state.reconnectTimer);
         state.reconnectTimer = null;
@@ -66,6 +67,14 @@ const MSEVideoStream = ({
       if (state.stalledCheckTimer) {
         clearInterval(state.stalledCheckTimer);
         state.stalledCheckTimer = null;
+      }
+
+      // Remove SourceBuffer event listener before cleanup
+      if (state.sb && state.sbUpdateHandler) {
+        try {
+          state.sb.removeEventListener("updateend", state.sbUpdateHandler);
+        } catch (e) {}
+        state.sbUpdateHandler = null;
       }
 
       if (state.ws) {
@@ -99,18 +108,21 @@ const MSEVideoStream = ({
       }
 
       state.sb = null;
-      state.buffer = { data: new Uint8Array(2 * 1024 * 1024), length: 0 };
+      // Reuse buffer - just reset length instead of allocating new one
+      state.buffer.length = 0;
       state.lastDataTime = 0;
     };
 
     const reconnect = () => {
-      if (!state.isMounted) return;
+      // Prevent multiple simultaneous reconnects
+      if (!state.isMounted || state.isReconnecting) return;
+      state.isReconnecting = true;
 
-      console.log("Reconnecting in 2 seconds...");
       cleanup();
       updateStatus("reconnecting");
 
       state.reconnectTimer = setTimeout(() => {
+        state.isReconnecting = false;
         if (state.isMounted) {
           connect();
         }
@@ -127,11 +139,27 @@ const MSEVideoStream = ({
 
         const timeSinceLastData = Date.now() - state.lastDataTime;
         if (timeSinceLastData > 2000) {
-          console.log(`Stalled for ${timeSinceLastData}ms - reconnecting`);
           updateStatus("stalled");
           reconnect();
         }
       }, 2000);
+    };
+
+    // Trim old buffer data to prevent memory growth
+    const trimBuffer = () => {
+      const sb = state.sb;
+      if (!sb || sb.updating) return;
+
+      try {
+        if (sb.buffered.length > 0) {
+          const currentTime = videoRef.current?.currentTime || 0;
+          const bufferedStart = sb.buffered.start(0);
+          // Keep 5 seconds behind current time, remove older data
+          if (currentTime - bufferedStart > 10) {
+            sb.remove(bufferedStart, currentTime - 5);
+          }
+        }
+      } catch (e) {}
     };
 
     const appendData = (data) => {
@@ -141,16 +169,21 @@ const MSEVideoStream = ({
       if (!sb) return;
 
       if (sb.updating || state.buffer.length > 0) {
-        const b = new Uint8Array(data);
-        if (state.buffer.length + b.byteLength <= state.buffer.data.length) {
-          state.buffer.data.set(b, state.buffer.length);
-          state.buffer.length += b.byteLength;
+        // Queue data - avoid creating new Uint8Array if possible
+        const dataView = new Uint8Array(data);
+        if (state.buffer.length + dataView.byteLength <= state.buffer.data.length) {
+          state.buffer.data.set(dataView, state.buffer.length);
+          state.buffer.length += dataView.byteLength;
         }
+        // If buffer is full, drop oldest data (or could drop new data)
       } else {
         try {
           sb.appendBuffer(data);
         } catch (e) {
-          console.warn("appendBuffer error:", e);
+          // QuotaExceededError - buffer is full, try trimming
+          if (e.name === "QuotaExceededError") {
+            trimBuffer();
+          }
         }
       }
     };
@@ -158,19 +191,27 @@ const MSEVideoStream = ({
     const setupSourceBuffer = (codecString) => {
       if (!state.ms) return;
 
-      console.log("Setting up SourceBuffer:", codecString);
       const sb = state.ms.addSourceBuffer(codecString);
       sb.mode = "segments";
 
-      sb.addEventListener("updateend", () => {
+      // Store handler reference for cleanup
+      state.sbUpdateHandler = () => {
         if (!sb.updating && state.buffer.length > 0) {
           try {
-            sb.appendBuffer(state.buffer.data.slice(0, state.buffer.length));
+            // Use subarray (view) instead of slice (copy) for better performance
+            sb.appendBuffer(state.buffer.data.subarray(0, state.buffer.length));
             state.buffer.length = 0;
-          } catch (e) {}
+          } catch (e) {
+            if (e.name === "QuotaExceededError") {
+              trimBuffer();
+            }
+          }
         }
-      });
+        // Periodically trim buffer
+        trimBuffer();
+      };
 
+      sb.addEventListener("updateend", state.sbUpdateHandler);
       state.sb = sb;
       updateStatus("streaming");
       startStalledCheck();
@@ -188,7 +229,6 @@ const MSEVideoStream = ({
 
       state.ms.addEventListener("sourceopen", () => {
         const codecs = getSupportedCodecs(MediaSourceClass.isTypeSupported);
-        console.log("MediaSource opened, codecs:", codecs);
         state.ws?.send(JSON.stringify({ type: "mse", value: codecs }));
       }, { once: true });
 
@@ -204,7 +244,6 @@ const MSEVideoStream = ({
     };
 
     const connect = () => {
-      console.log("Connecting...");
       updateStatus("connecting");
       updateError(null);
 
@@ -220,7 +259,6 @@ const MSEVideoStream = ({
       state.ws = ws;
 
       ws.onopen = () => {
-        console.log("WebSocket connected");
         updateStatus("open");
         setupMSE();
       };
@@ -231,7 +269,6 @@ const MSEVideoStream = ({
           if (msg.type === "mse") {
             setupSourceBuffer(msg.value);
           } else if (msg.type === "error") {
-            console.log("Stream error:", msg.value);
             updateError(msg.value);
             updateStatus("error");
             reconnect();
@@ -242,7 +279,6 @@ const MSEVideoStream = ({
       };
 
       ws.onclose = () => {
-        console.log("WebSocket closed");
         if (state.ws === ws) {
           state.ws = null;
           updateStatus("closed");
@@ -251,10 +287,9 @@ const MSEVideoStream = ({
       };
 
       ws.onerror = () => {
-        console.log("WebSocket error");
         updateError("Connection failed");
         updateStatus("error");
-        reconnect();
+        // Don't call reconnect here - onclose will be called after onerror
       };
     };
 
