@@ -1,177 +1,96 @@
 # React MSE Player
 
-A React component for streaming video using Media Source Extensions (MSE), specifically designed for [go2rtc](https://github.com/AlexxIT/go2rtc).
+A strict, type-safe React component for streaming low-latency video using Media Source Extensions (MSE). Designed for seamless integration with [go2rtc](https://github.com/AlexxIT/go2rtc).
 
 ## Features
 
-- 🎥 MSE (Media Source Extensions) video streaming
-- 🔄 Automatic reconnection on connection loss
-- 📱 Mobile support with playsInline
-- 🎨 Customizable styling
-- 🔊 Audio + Video support
-- 🍎 Safari support (including ManagedMediaSource for Safari 17+)
-- ⚡ Low latency live streaming
-- 🎯 Simple API
+- **Media Source Extensions (MSE)**: Low-latency streaming directly in the browser.
+- **Robust Connection Management**: Automatic reconnection handling with exponential backoff and stall detection.
+- **Type-Safe**: Full TypeScript support with comprehensive type definitions.
+- **Smart Buffering**: Internal buffer queueing and automatic memory trimming to prevent quota errors.
+- **Broad Codec Support**: automatic negotiation for H.264, H.265 (HEVC), AAC, FLAC, and Opus.
+- **ManagedMediaSource**: Support for iOS 17+ via ManagedMediaSource API.
 
 ## Installation
 
 ```bash
 npm install react-mse-player
-```
-
-or
-
-```bash
+# or
 yarn add react-mse-player
 ```
 
 ## Usage
 
-### Basic Example
+### Basic Usage
 
-```jsx
+```tsx
 import React from 'react';
 import { MSEVideoStream } from 'react-mse-player';
 
-function App() {
+const Player = () => {
   return (
-    <div>
-      <MSEVideoStream
-        src="/api/ws?src=camera1"
-        width="640px"
-        height="480px"
+    <div style={{ width: '640px', aspectRatio: '16/9' }}>
+      <MSEVideoStream 
+        src="ws://localhost:1984/api/ws?src=camera1" 
       />
     </div>
   );
-}
-
-export default App;
+};
 ```
 
-### Advanced Example
+### Advanced Usage with TypeScript
 
-```jsx
-import React from 'react';
+```tsx
+import React, { useCallback } from 'react';
 import { MSEVideoStream } from 'react-mse-player';
 
-function App() {
-  const handleStatus = (status) => {
-    console.log('Stream status:', status);
-  };
+const AdvancedPlayer = () => {
+  const handleStatus = useCallback((status: string) => {
+    // status: 'connecting' | 'open' | 'streaming' | 'closed' | 'error' | 'stalled' | 'reconnecting'
+    console.log('[Player Status]', status);
+  }, []);
 
-  const handleError = (error) => {
-    console.error('Stream error:', error);
-  };
+  const handleError = useCallback((error: any) => {
+    console.error('[Player Error]', error);
+  }, []);
 
   return (
-    <div>
-      <MSEVideoStream
-        src="ws://localhost:1984/api/ws?src=mycamera"
-        width="100%"
-        height="auto"
-        controls={true}
-        autoPlay={true}
-        media="video,audio"
-        onStatus={handleStatus}
-        onError={handleError}
-        showStatusOverlay={true}
-        className="my-video-player"
-        style={{ maxWidth: '1280px' }}
-      />
-    </div>
+    <MSEVideoStream
+      src="ws://localhost:1984/api/ws?src=camera1"
+      autoPlay={true}
+      controls={false}
+      media="video,audio"
+      onStatus={handleStatus}
+      onError={handleError}
+      className="custom-player-class"
+      style={{ width: '100%', height: '100%' }}
+    />
   );
-}
-
-export default App;
+};
 ```
 
 ## Props
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `src` | `string` | **required** | WebSocket URL for the stream (e.g., `/api/ws?src=camera1` or `ws://localhost:1984/api/ws?src=camera1`) |
-| `width` | `string` | `'100%'` | Video width (any valid CSS width value) |
-| `height` | `string` | `'100%'` | Video height (any valid CSS height value) |
-| `controls` | `boolean` | `true` | Show video controls |
-| `autoPlay` | `boolean` | `true` | Auto-play video when ready |
-| `media` | `string` | `'video,audio'` | Media types to request: `'video'`, `'audio'`, or `'video,audio'` |
-| `onStatus` | `function` | `undefined` | Callback function called when status changes. Receives status string: `'connecting'`, `'open'`, `'streaming'`, `'closed'`, or `'error'` |
-| `onError` | `function` | `undefined` | Callback function called when an error occurs. Receives error message string |
-| `className` | `string` | `''` | Additional CSS class name for the container div |
-| `style` | `object` | `{}` | Additional inline styles for the container div |
-| `showStatusOverlay` | `boolean` | `true` | Show status overlay in top-right corner |
-
-## Status Values
-
-The component emits the following status values through the `onStatus` callback:
-
-- `connecting` - Initial connection to WebSocket
-- `open` - WebSocket connected, setting up MSE
-- `streaming` - Video is streaming
-- `closed` - Connection closed (will auto-reconnect)
-- `error` - An error occurred
+| `src` | `string` | **Required** | WebSocket URL for the stream (e.g., `ws://...` or `/api/ws...`). |
+| `width` | `string \| number` | `'100%'` | Width of the container. |
+| `height` | `string \| number` | `'100%'` | Height of the container. |
+| `autoPlay` | `boolean` | `true` | Whether to start playback automatically. |
+| `controls` | `boolean` | `false` | Show native video controls. |
+| `media` | `string` | `'video,audio'` | Media types to negotiate (`'video'`, `'audio'`, or `'video,audio'`). |
+| `onStatus` | `(status: string) => void` | `undefined` | Callback for connection status updates. |
+| `onError` | `(error: any) => void` | `undefined` | Callback for errors. |
+| `className` | `string` | `''` | CSS class for the container. |
+| `style` | `React.CSSProperties` | `{}` | Inline styles for the container. |
 
 ## Browser Support
 
-- ✅ Chrome/Edge (Desktop & Mobile)
-- ✅ Firefox (Desktop & Mobile)
-- ✅ Safari 17+ (with ManagedMediaSource)
-- ✅ Safari 11-16 (limited codec support)
-- ✅ Opera
-- ✅ Samsung Internet
-
-## Supported Codecs
-
-The component automatically detects and uses the best available codecs:
-
-**Video:**
-- H.264 (avc1)
-- H.265 (hvc1) - where supported
-
-**Audio:**
-- AAC LC
-- AAC HE
-- FLAC
-- Opus
-
-## go2rtc Integration
-
-This component is designed to work seamlessly with [go2rtc](https://github.com/AlexxIT/go2rtc). Make sure your go2rtc server is running and accessible.
-
-Example go2rtc configuration:
-
-```yaml
-streams:
-  camera1: rtsp://username:password@camera-ip:554/stream
-
-api:
-  listen: ":1984"
-```
-
-Then use the component:
-
-```jsx
-<MSEVideoStream src="/api/ws?src=camera1" />
-```
-
-## Development
-
-### Build
-
-```bash
-npm run build
-```
-
-### Watch mode
-
-```bash
-npm run dev
-```
+- **Chromium-based** (Chrome, Edge, Brave): Full support.
+- **Firefox**: Full support.
+- **Safari**: Supported on version 17+ via `ManagedMediaSource`.
+- **Mobile**: Supported on Android (Chrome/Firefox) and iOS 17.1+ (Safari).
 
 ## License
 
 MIT
-
-## Credits
-
-Based on the [go2rtc](https://github.com/AlexxIT/go2rtc) VideoRTC player by [@AlexxIT](https://github.com/AlexxIT).
