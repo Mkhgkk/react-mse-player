@@ -366,6 +366,11 @@ const MSEVideoStream = ({
         >
           {error && error.toString().toLowerCase().includes("stream not found") ? (
             <div style={{ color: "white", fontSize: 16 }}>Stream not found</div>
+          ) : error &&
+            error.toString().toLowerCase().includes("connection failed") ? (
+            <div style={{ color: "white", fontSize: 16 }}>
+              Connection failed
+            </div>
           ) : (
             <>
               <div
