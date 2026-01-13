@@ -270,7 +270,8 @@ const MSEVideoStream = ({
 
     const connect = () => {
       updateStatus("connecting");
-      updateError(null);
+      // Keep previous error to avoid checking flashing
+      // updateError(null);
 
       let wsURL = src;
       if (wsURL.startsWith("http")) {
@@ -285,6 +286,7 @@ const MSEVideoStream = ({
 
       ws.onopen = () => {
         updateStatus("open");
+        updateError(null);
         setupMSE();
       };
 
@@ -362,18 +364,26 @@ const MSEVideoStream = ({
             gap: 12,
           }}
         >
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              border: "4px solid rgba(255,255,255,0.3)",
-              borderTop: "4px solid white",
-              borderRadius: "50%",
-              animation: "spin 1s linear infinite",
-            }}
-          />
-          {status === "reconnecting" && (
-            <div style={{ color: "white", fontSize: 16 }}>Reconnecting...</div>
+          {error && error.toString().toLowerCase().includes("stream not found") ? (
+            <div style={{ color: "white", fontSize: 16 }}>Stream not found</div>
+          ) : (
+            <>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  border: "4px solid rgba(255,255,255,0.3)",
+                  borderTop: "4px solid white",
+                  borderRadius: "50%",
+                  animation: "spin 1s linear infinite",
+                }}
+              />
+              {status === "reconnecting" && (
+                <div style={{ color: "white", fontSize: 16 }}>
+                  Reconnecting...
+                </div>
+              )}
+            </>
           )}
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
