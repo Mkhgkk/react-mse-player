@@ -351,7 +351,7 @@ const MSEVideoStream = ({
           backgroundColor: "black",
         }}
       />
-      {isLoading && (
+      {(isLoading || status === "error") && (
         <div
           style={{
             position: "absolute",
@@ -371,6 +371,8 @@ const MSEVideoStream = ({
             <div style={{ color: "white", fontSize: 16 }}>
               Connection failed
             </div>
+          ) : status === "error" ? (
+            <div style={{ color: "white", fontSize: 16 }}>{error}</div>
           ) : (
             <>
               <div
