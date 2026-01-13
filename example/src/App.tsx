@@ -3,8 +3,8 @@ import { MSEVideoStream } from "react-mse-player";
 import "./App.css";
 
 function App() {
-  const [streamUrl, setStreamUrl] = useState("ws://localhost:1984/api/ws?src=camera1");
-  const [inputValue, setInputValue] = useState(streamUrl);
+  const [streamUrl, setStreamUrl] = useState<string>("ws://localhost:1984/api/ws?src=camera1");
+  const [inputValue, setInputValue] = useState<string>(streamUrl);
 
   const handleUpdate = () => {
     setStreamUrl(inputValue);
@@ -30,8 +30,8 @@ function App() {
       <div className="player-wrapper">
         <MSEVideoStream
           src={streamUrl}
-          onError={(e) => console.error("Player error:", e)}
-          onStatus={(s) => console.log("Player status:", s)}
+          onError={(e: any) => console.error("Player error:", e)}
+          onStatus={(s: string) => console.log("Player status:", s)}
           // Optional customization:
           // width="100%"
           // height="100%"

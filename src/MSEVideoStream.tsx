@@ -1,6 +1,46 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, CSSProperties } from "react";
 
-const MSEVideoStream = ({
+// Add support for non-standard ManagedMediaSource
+declare global {
+  interface Window {
+    ManagedMediaSource?: typeof MediaSource;
+  }
+}
+
+export interface MSEVideoStreamProps {
+  src: string;
+  width?: string | number;
+  height?: string | number;
+  controls?: boolean;
+  autoPlay?: boolean;
+  media?: string;
+  onStatus?: (status: string) => void;
+  onError?: (error: any) => void;
+  className?: string;
+  style?: CSSProperties;
+  dataTimeout?: number;
+  showStatusOverlay?: boolean; // kept for backward compatibility if passed but not used much
+}
+
+interface MSEBuffer {
+  data: Uint8Array;
+  length: number;
+}
+
+interface ComponentState {
+  ws: WebSocket | null;
+  ms: MediaSource | null;
+  sb: SourceBuffer | null;
+  sbUpdateHandler: ((this: SourceBuffer, ev: Event) => any) | null;
+  buffer: MSEBuffer;
+  lastDataTime: number;
+  reconnectTimer: any | null; // NodeJS.Timeout or number
+  stalledCheckTimer: any | null;
+  isMounted: boolean;
+  isReconnecting: boolean;
+}
+
+const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
   src,
   width = "100%",
   height = "100%",
@@ -12,22 +52,22 @@ const MSEVideoStream = ({
   className = "",
   style = {},
 }) => {
-  const videoRef = useRef(null);
-  const stateRef = useRef({
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const stateRef = useRef<ComponentState>({
     ws: null,
     ms: null,
     sb: null,
-    sbUpdateHandler: null, // Store handler reference for cleanup
+    sbUpdateHandler: null,
     buffer: { data: new Uint8Array(2 * 1024 * 1024), length: 0 },
     lastDataTime: 0,
     reconnectTimer: null,
     stalledCheckTimer: null,
     isMounted: true,
-    isReconnecting: false, // Prevent double reconnect
+    isReconnecting: false,
   });
 
-  const [status, setStatus] = useState("connecting");
-  const [error, setError] = useState(null);
+  const [status, setStatus] = useState<string>("connecting");
+  const [error, setError] = useState<any>(null);
 
   const onStatusRef = useRef(onStatus);
   const onErrorRef = useRef(onError);
@@ -39,16 +79,16 @@ const MSEVideoStream = ({
     onErrorRef.current = onError;
   }, [onError]);
 
-  const updateStatus = (s) => {
+  const updateStatus = (s: string) => {
     setStatus(s);
     onStatusRef.current?.(s);
   };
-  const updateError = (e) => {
+  const updateError = (e: any) => {
     setError(e);
     onErrorRef.current?.(e);
   };
 
-  const codecsRef = useRef([
+  const codecsRef = useRef<string[]>([
     "avc1.640029",
     "avc1.64002A",
     "avc1.640033",
@@ -59,7 +99,7 @@ const MSEVideoStream = ({
     "opus",
   ]);
 
-  const getSupportedCodecs = (isSupported) => {
+  const getSupportedCodecs = (isSupported: (type: string) => boolean) => {
     return codecsRef.current
       .filter((codec) =>
         media.includes(codec.includes("vc1") ? "video" : "audio")
@@ -85,7 +125,6 @@ const MSEVideoStream = ({
         state.stalledCheckTimer = null;
       }
 
-      // Remove SourceBuffer event listener before cleanup
       if (state.sb && state.sbUpdateHandler) {
         try {
           state.sb.removeEventListener("updateend", state.sbUpdateHandler);
@@ -108,8 +147,9 @@ const MSEVideoStream = ({
       if (state.ms) {
         try {
           if (state.ms.readyState === "open") {
-            while (state.ms.sourceBuffers.length > 0) {
-              state.ms.removeSourceBuffer(state.ms.sourceBuffers[0]);
+            const buffers = state.ms.sourceBuffers;
+            for (let i = buffers.length - 1; i >= 0; i--) {
+              state.ms.removeSourceBuffer(buffers[i]);
             }
           }
         } catch (e) {}
@@ -126,13 +166,11 @@ const MSEVideoStream = ({
       }
 
       state.sb = null;
-      // Reuse buffer - just reset length instead of allocating new one
       state.buffer.length = 0;
       state.lastDataTime = 0;
     };
 
     const reconnect = () => {
-      // Prevent multiple simultaneous reconnects
       if (!state.isMounted || state.isReconnecting) return;
       state.isReconnecting = true;
 
@@ -163,7 +201,6 @@ const MSEVideoStream = ({
       }, 2000);
     };
 
-    // Trim old buffer data to prevent memory growth
     const trimBuffer = () => {
       const sb = state.sb;
       if (!sb || sb.updating) return;
@@ -172,7 +209,6 @@ const MSEVideoStream = ({
         if (sb.buffered.length > 0) {
           const currentTime = videoRef.current?.currentTime || 0;
           const bufferedStart = sb.buffered.start(0);
-          // Keep 5 seconds behind current time, remove older data
           if (currentTime - bufferedStart > 10) {
             sb.remove(bufferedStart, currentTime - 5);
           }
@@ -180,14 +216,13 @@ const MSEVideoStream = ({
       } catch (e) {}
     };
 
-    const appendData = (data) => {
+    const appendData = (data: ArrayBuffer) => {
       state.lastDataTime = Date.now();
 
       const sb = state.sb;
       if (!sb) return;
 
       if (sb.updating || state.buffer.length > 0) {
-        // Queue data - avoid creating new Uint8Array if possible
         const dataView = new Uint8Array(data);
         if (
           state.buffer.length + dataView.byteLength <=
@@ -196,12 +231,10 @@ const MSEVideoStream = ({
           state.buffer.data.set(dataView, state.buffer.length);
           state.buffer.length += dataView.byteLength;
         }
-        // If buffer is full, drop oldest data (or could drop new data)
       } else {
         try {
-          sb.appendBuffer(data);
-        } catch (e) {
-          // QuotaExceededError - buffer is full, try trimming
+          sb.appendBuffer(data as BufferSource);
+        } catch (e: any) {
           if (e.name === "QuotaExceededError") {
             trimBuffer();
           }
@@ -209,26 +242,24 @@ const MSEVideoStream = ({
       }
     };
 
-    const setupSourceBuffer = (codecString) => {
+    const setupSourceBuffer = (codecString: string) => {
       if (!state.ms) return;
 
       const sb = state.ms.addSourceBuffer(codecString);
       sb.mode = "segments";
 
-      // Store handler reference for cleanup
       state.sbUpdateHandler = () => {
         if (!sb.updating && state.buffer.length > 0) {
           try {
-            // Use subarray (view) instead of slice (copy) for better performance
-            sb.appendBuffer(state.buffer.data.subarray(0, state.buffer.length));
+            const data = state.buffer.data.subarray(0, state.buffer.length);
+            sb.appendBuffer(data as unknown as BufferSource);
             state.buffer.length = 0;
-          } catch (e) {
+          } catch (e: any) {
             if (e.name === "QuotaExceededError") {
               trimBuffer();
             }
           }
         }
-        // Periodically trim buffer
         trimBuffer();
       };
 
@@ -259,7 +290,7 @@ const MSEVideoStream = ({
 
       if (videoRef.current) {
         if (window.ManagedMediaSource) {
-          videoRef.current.disableRemotePlayback = true;
+          (videoRef.current as any).disableRemotePlayback = true;
           videoRef.current.srcObject = state.ms;
         } else {
           videoRef.current.src = URL.createObjectURL(state.ms);
@@ -270,7 +301,6 @@ const MSEVideoStream = ({
 
     const connect = () => {
       updateStatus("connecting");
-      // Keep previous error to avoid checking flashing
       // updateError(null);
 
       let wsURL = src;
@@ -316,7 +346,6 @@ const MSEVideoStream = ({
       ws.onerror = () => {
         updateError("Connection failed");
         updateStatus("error");
-        // Don't call reconnect here - onclose will be called after onerror
       };
     };
 
@@ -343,7 +372,7 @@ const MSEVideoStream = ({
         controls={controls}
         playsInline
         muted
-        autoPlay
+        autoPlay={autoPlay}
         style={{
           display: "block",
           width: "100%",
