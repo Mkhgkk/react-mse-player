@@ -70,7 +70,6 @@ function App() {
           media="video,audio"
           onStatus={handleStatus}
           onError={handleError}
-          showStatusOverlay={true}
           dataTimeout={2000}
         />
       </div>

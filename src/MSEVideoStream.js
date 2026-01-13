@@ -11,7 +11,6 @@ const MSEVideoStream = ({
   onError,
   className = "",
   style = {},
-  showStatusOverlay = true,
 }) => {
   const videoRef = useRef(null);
   const stateRef = useRef({
@@ -357,6 +356,10 @@ const MSEVideoStream = ({
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 12,
           }}
         >
           <div
@@ -369,23 +372,10 @@ const MSEVideoStream = ({
               animation: "spin 1s linear infinite",
             }}
           />
+          {status === "reconnecting" && (
+            <div style={{ color: "white", fontSize: 16 }}>Reconnecting...</div>
+          )}
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
-      {showStatusOverlay && status !== "streaming" && (
-        <div
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            color: "white",
-            padding: "8px 12px",
-            backgroundColor: "rgba(0,0,0,0.7)",
-            borderRadius: 4,
-            fontSize: 14,
-          }}
-        >
-          {status === "error" ? `Error: ${error}` : status.toUpperCase()}
         </div>
       )}
     </div>
