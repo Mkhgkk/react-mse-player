@@ -19,7 +19,6 @@ export interface MSEVideoStreamProps {
   className?: string;
   style?: CSSProperties;
   dataTimeout?: number;
-  showStatusOverlay?: boolean; // kept for backward compatibility if passed but not used much
 }
 
 interface MSEBuffer {
