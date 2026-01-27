@@ -32,9 +32,7 @@ interface ComponentState {
   sb: SourceBuffer | null;
   sbUpdateHandler: ((this: SourceBuffer, ev: Event) => any) | null;
   buffer: MSEBuffer;
-  lastDataTime: number;
   reconnectTimer: any | null; // NodeJS.Timeout or number
-  stalledCheckTimer: any | null;
   isMounted: boolean;
   isReconnecting: boolean;
 }
@@ -58,12 +56,13 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     sb: null,
     sbUpdateHandler: null,
     buffer: { data: new Uint8Array(2 * 1024 * 1024), length: 0 },
-    lastDataTime: 0,
     reconnectTimer: null,
-    stalledCheckTimer: null,
     isMounted: true,
     isReconnecting: false,
   });
+  
+  // Track connection start time for smart reconnect delay
+  const connectTSRef = useRef<number>(0);
 
   const [status, setStatus] = useState<string>("connecting");
   const [error, setError] = useState<any>(null);
@@ -78,28 +77,6 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     onErrorRef.current = onError;
   }, [onError]);
 
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && videoRef.current && stateRef.current.sb) {
-        try {
-          const sb = stateRef.current.sb;
-          if (sb.buffered.length > 0) {
-            const liveEdge = sb.buffered.end(sb.buffered.length - 1);
-            const currentTime = videoRef.current.currentTime;
-
-            // If we're more than 2 seconds behind live, jump to live edge
-            if (liveEdge - currentTime > 2) {
-              videoRef.current.currentTime = liveEdge - 0.5; // Jump to 0.5s before live edge
-            }
-          }
-        } catch (e) {}
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
-
   const updateStatus = (s: string) => {
     setStatus(s);
     onStatusRef.current?.(s);
@@ -109,15 +86,16 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     onErrorRef.current?.(e);
   };
 
+  // Codecs list from VideoRTC
   const codecsRef = useRef<string[]>([
-    "avc1.640029",
-    "avc1.64002A",
-    "avc1.640033",
-    "hvc1.1.6.L153.B0",
-    "mp4a.40.2",
-    "mp4a.40.5",
-    "flac",
-    "opus",
+    'avc1.640029',      // H.264 high 4.1 (Chromecast 1st and 2nd Gen)
+    'avc1.64002A',      // H.264 high 4.2 (Chromecast 3rd Gen)
+    'avc1.640033',      // H.264 high 5.1 (Chromecast with Google TV)
+    'hvc1.1.6.L153.B0', // H.265 main 5.1 (Chromecast Ultra)
+    'mp4a.40.2',        // AAC LC
+    'mp4a.40.5',        // AAC HE
+    'flac',             // FLAC (PCM compatible)
+    'opus',             // OPUS Chrome, Firefox
   ]);
 
   const getSupportedCodecs = (isSupported: (type: string) => boolean) => {
@@ -136,14 +114,23 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     state.isMounted = true;
     state.isReconnecting = false;
 
+    // Helper to keep video playing in background (force play on pause)
+    const handlePause = () => {
+        if (
+          document.hidden &&
+          videoRef.current &&
+          !videoRef.current.ended &&
+          videoRef.current.readyState > 2
+        ) {
+          videoRef.current.play().catch(() => {});
+        }
+    };
+    videoRef.current.addEventListener('pause', handlePause);
+
     const cleanup = () => {
       if (state.reconnectTimer) {
         clearTimeout(state.reconnectTimer);
         state.reconnectTimer = null;
-      }
-      if (state.stalledCheckTimer) {
-        clearInterval(state.stalledCheckTimer);
-        state.stalledCheckTimer = null;
       }
 
       if (state.sb && state.sbUpdateHandler) {
@@ -154,15 +141,10 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       }
 
       if (state.ws) {
-        const ws = state.ws;
+        // Prevent onclose iteration if we are manually closing
+        state.ws.onclose = null; 
+        state.ws.close();
         state.ws = null;
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onclose = null;
-        ws.onerror = null;
-        try {
-          ws.close();
-        } catch (e) {}
       }
 
       if (state.ms) {
@@ -188,118 +170,109 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
       state.sb = null;
       state.buffer.length = 0;
-      state.lastDataTime = 0;
     };
 
     const reconnect = () => {
       if (!state.isMounted || state.isReconnecting) return;
+      
+      // logic from VideoRTC: reconnect no more than once every X seconds
+      const RECONNECT_TIMEOUT = 15000;
+      const delay = Math.max(RECONNECT_TIMEOUT - (Date.now() - connectTSRef.current), 0);
+      
       state.isReconnecting = true;
-
       cleanup();
-      updateStatus("reconnecting");
+      
+      // If delay is significant, show reconnecting status
+      if (delay > 500) {
+          updateStatus("reconnecting");
+      }
 
       state.reconnectTimer = setTimeout(() => {
         state.isReconnecting = false;
         if (state.isMounted) {
           connect();
         }
-      }, 2000);
+      }, delay);
     };
 
-    const startStalledCheck = () => {
-      if (state.stalledCheckTimer) {
-        clearInterval(state.stalledCheckTimer);
-      }
+    const onMSE = (ms: MediaSource, codecString: string) => {
+        if (!state.ms) return; // Cleanup happened?
 
-      state.stalledCheckTimer = setInterval(() => {
-        if (!state.lastDataTime) return;
+        const sb = ms.addSourceBuffer(codecString);
+        sb.mode = "segments";
 
-        const timeSinceLastData = Date.now() - state.lastDataTime;
-        if (timeSinceLastData > 2000) {
-          updateStatus("stalled");
-          reconnect();
-        }
-      }, 2000);
-    };
+        state.sbUpdateHandler = () => {
+             // 1. Append pending data
+             if (!sb.updating && state.buffer.length > 0) {
+                try {
+                    const data = state.buffer.data.subarray(0, state.buffer.length);
+                    sb.appendBuffer(data as unknown as BufferSource);
+                    state.buffer.length = 0;
+                } catch(e) { /* ignore */ }
+             }
 
-    let lastTrimTime = 0;
-    const trimBuffer = () => {
-      const sb = state.sb;
-      if (!sb || sb.updating) return;
+             // 2. Buffer management and smooth playback sync (VideoRTC logic)
+             if (!sb.updating && sb.buffered && sb.buffered.length > 0 && videoRef.current) {
+                 const video = videoRef.current;
+                 const end = sb.buffered.end(sb.buffered.length - 1);
+                 const start = end - 5;
+                 const start0 = sb.buffered.start(0);
 
-      // Rate limit trimming to once per 2 seconds to avoid interfering with playback
-      const now = Date.now();
-      if (now - lastTrimTime < 2000) return;
+                 // Trim everything older than 5 seconds from the end
+                 if (start > start0) {
+                     try {
+                         sb.remove(start0, start);
+                         // Set live seekable range so the browser knows where we are
+                         if (ms.setLiveSeekableRange) {
+                             ms.setLiveSeekableRange(start, end);
+                         }
+                     } catch(e) {}
+                 }
 
-      try {
-        if (sb.buffered.length > 0) {
-          const currentTime = videoRef.current?.currentTime || 0;
-          const bufferedStart = sb.buffered.start(0);
-          // Keep more buffer behind (15 seconds) and only trim when necessary
-          if (currentTime - bufferedStart > 15) {
-            sb.remove(bufferedStart, currentTime - 8);
-            lastTrimTime = now;
-          }
-        }
-      } catch (e) {}
+                 // Jump forward if we fell behind the buffer window
+                 if (video.currentTime < start) {
+                     video.currentTime = start;
+                 }
+
+                 // Smooth playrate adjustment
+                 const gap = end - video.currentTime;
+                 // "gap > 0.1 ? gap : 0.1" logic from VideoRTC
+                 // This effectively slows down playback if we are too close to end (to avoid stall)
+                 // And speeds up playback to match gap if we are behind.
+                 video.playbackRate = gap > 0.1 ? gap : 0.1;
+                 
+                 // Ensure we are playing
+                 if (video.paused && !video.ended && video.readyState > 2) {
+                     video.play().catch(() => {});
+                 }
+             }
+        };
+
+        sb.addEventListener("updateend", state.sbUpdateHandler);
+        state.sb = sb;
+        updateStatus("streaming");
     };
 
     const appendData = (data: ArrayBuffer) => {
-      state.lastDataTime = Date.now();
+        const sb = state.sb;
+        if (!sb) return;
 
-      const sb = state.sb;
-      if (!sb) return;
-
-      if (sb.updating || state.buffer.length > 0) {
-        const dataView = new Uint8Array(data);
-        if (
-          state.buffer.length + dataView.byteLength <=
-          state.buffer.data.length
-        ) {
-          state.buffer.data.set(dataView, state.buffer.length);
-          state.buffer.length += dataView.byteLength;
+        if (sb.updating || state.buffer.length > 0) {
+            const dataView = new Uint8Array(data);
+             if (state.buffer.length + dataView.byteLength <= state.buffer.data.length) {
+                state.buffer.data.set(dataView, state.buffer.length);
+                state.buffer.length += dataView.byteLength;
+             }
+        } else {
+            try {
+                sb.appendBuffer(data as BufferSource);
+            } catch(e) {}
         }
-      } else {
-        try {
-          sb.appendBuffer(data as BufferSource);
-        } catch (e: any) {
-          if (e.name === "QuotaExceededError") {
-            trimBuffer();
-          }
-        }
-      }
-    };
-
-    const setupSourceBuffer = (codecString: string) => {
-      if (!state.ms) return;
-
-      const sb = state.ms.addSourceBuffer(codecString);
-      sb.mode = "segments";
-
-      state.sbUpdateHandler = () => {
-        if (!sb.updating && state.buffer.length > 0) {
-          try {
-            const data = state.buffer.data.subarray(0, state.buffer.length);
-            sb.appendBuffer(data as unknown as BufferSource);
-            state.buffer.length = 0;
-          } catch (e: any) {
-            if (e.name === "QuotaExceededError") {
-              trimBuffer();
-            }
-          }
-        }
-        // Only trim when needed, not after every append
-        trimBuffer();
-      };
-
-      sb.addEventListener("updateend", state.sbUpdateHandler);
-      state.sb = sb;
-      updateStatus("streaming");
-      startStalledCheck();
     };
 
     const setupMSE = () => {
-      const MediaSourceClass = window.ManagedMediaSource || window.MediaSource;
+      const MediaSourceClass =
+        window.ManagedMediaSource || window.MediaSource;
       if (!MediaSourceClass) {
         updateError("MediaSource not supported");
         updateStatus("error");
@@ -325,12 +298,14 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           videoRef.current.src = URL.createObjectURL(state.ms);
           videoRef.current.srcObject = null;
         }
+        // Ensure play is called
+        videoRef.current.play().catch(() => {});
       }
     };
 
     const connect = () => {
       updateStatus("connecting");
-      // updateError(null);
+      connectTSRef.current = Date.now();
 
       let wsURL = src;
       if (wsURL.startsWith("http")) {
@@ -353,11 +328,11 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         if (typeof ev.data === "string") {
           const msg = JSON.parse(ev.data);
           if (msg.type === "mse") {
-            setupSourceBuffer(msg.value);
+            onMSE(state.ms!, msg.value);
           } else if (msg.type === "error") {
-            updateError(msg.value);
-            updateStatus("error");
-            reconnect();
+            // updateError(msg.value);
+            // If error, maybe try to reconnect? VideoRTC doesn't explicitly invalid on error msg, but we will logs it.
+            console.warn("MSE Error:", msg.value);
           }
         } else {
           appendData(ev.data);
@@ -373,8 +348,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       };
 
       ws.onerror = () => {
+        // VideoRTC mostly handles onclose for reconnect logic
         updateError("Connection failed");
-        updateStatus("error");
       };
     };
 
@@ -382,14 +357,16 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
     return () => {
       state.isMounted = false;
+      if (videoRef.current) {
+          videoRef.current.removeEventListener('pause', handlePause);
+      }
       cleanup();
     };
   }, [src, media]);
 
   const isLoading =
     status === "connecting" ||
-    status === "reconnecting" ||
-    status === "stalled";
+    status === "reconnecting";
 
   return (
     <div
