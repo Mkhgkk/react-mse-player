@@ -78,6 +78,28 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     onErrorRef.current = onError;
   }, [onError]);
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && videoRef.current && stateRef.current.sb) {
+        try {
+          const sb = stateRef.current.sb;
+          if (sb.buffered.length > 0) {
+            const liveEdge = sb.buffered.end(sb.buffered.length - 1);
+            const currentTime = videoRef.current.currentTime;
+
+            // If we're more than 2 seconds behind live, jump to live edge
+            if (liveEdge - currentTime > 2) {
+              videoRef.current.currentTime = liveEdge - 0.5; // Jump to 0.5s before live edge
+            }
+          }
+        } catch (e) {}
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   const updateStatus = (s: string) => {
     setStatus(s);
     onStatusRef.current?.(s);
@@ -200,16 +222,23 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       }, 2000);
     };
 
+    let lastTrimTime = 0;
     const trimBuffer = () => {
       const sb = state.sb;
       if (!sb || sb.updating) return;
+
+      // Rate limit trimming to once per 2 seconds to avoid interfering with playback
+      const now = Date.now();
+      if (now - lastTrimTime < 2000) return;
 
       try {
         if (sb.buffered.length > 0) {
           const currentTime = videoRef.current?.currentTime || 0;
           const bufferedStart = sb.buffered.start(0);
-          if (currentTime - bufferedStart > 10) {
-            sb.remove(bufferedStart, currentTime - 5);
+          // Keep more buffer behind (15 seconds) and only trim when necessary
+          if (currentTime - bufferedStart > 15) {
+            sb.remove(bufferedStart, currentTime - 8);
+            lastTrimTime = now;
           }
         }
       } catch (e) {}
@@ -259,6 +288,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
             }
           }
         }
+        // Only trim when needed, not after every append
         trimBuffer();
       };
 
