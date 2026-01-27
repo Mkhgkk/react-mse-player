@@ -37,7 +37,8 @@ function App() {
           // height="100%"
           // autoPlay={true}
           // controls={false}
-          // dataTimeout={2000}
+          // dataTimeout={5000}
+          debug={true}
         />
       </div>
 
