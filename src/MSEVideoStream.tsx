@@ -37,6 +37,7 @@ interface ComponentState {
   lastDataTime: number;
   isMounted: boolean;
   isReconnecting: boolean;
+  hasReceivedData: boolean;
 }
 
 const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
@@ -64,6 +65,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     lastDataTime: 0,
     isMounted: true,
     isReconnecting: false,
+    hasReceivedData: false,
   });
   
   // Track connection start time for smart reconnect delay
@@ -180,6 +182,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       state.sb = null;
       state.buffer.length = 0;
       state.lastDataTime = 0;
+      state.hasReceivedData = false;
     };
 
     const reconnect = () => {
@@ -199,17 +202,19 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
     const startStalledCheck = () => {
       if (state.stalledCheckTimer) clearInterval(state.stalledCheckTimer);
-      
+
       state.stalledCheckTimer = setInterval(() => {
-         if (!state.lastDataTime) return;
+         // Only check for stalls if we've received at least one data packet
+         if (!state.hasReceivedData || !state.lastDataTime) return;
+
          const now = Date.now();
          // If background, use lenient 15s threshold to allow for browser throttling
          // If foreground, use standard timeout (default 3s)
          const threshold = document.hidden ? 15000 : dataTimeout;
-         
+
          if (now - state.lastDataTime > threshold) {
              // console.warn("Stall detected", now - state.lastDataTime);
-             reconnect(); 
+             reconnect();
          }
       }, 1000);
     };
@@ -278,6 +283,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
     const appendData = (data: ArrayBuffer) => {
         state.lastDataTime = Date.now();
+        state.hasReceivedData = true;
         const sb = state.sb;
         if (!sb) return;
 
