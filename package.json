@@ -1,6 +1,6 @@
 {
   "name": "react-mse-player",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "description": "React component for streaming video using Media Source Extensions (MSE) - designed for go2rtc",
   "main": "dist/index.js",
