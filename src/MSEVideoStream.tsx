@@ -52,7 +52,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
   onError,
   className = "",
   style = {},
-  dataTimeout = 3000,
+  dataTimeout = 5000,
   objectFit = "contain",
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -198,9 +198,10 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       setIsPlaying(false);
     };
 
-    const reconnect = () => {
+    const reconnect = (reason: string) => {
       if (!state.isMounted || state.isReconnecting) return;
 
+      console.log(`[MSEVideoStream] Starting reconnect sequence. Reason: ${reason}`);
       state.isReconnecting = true;
       cleanup();
       updateStatus("reconnecting");
@@ -208,7 +209,12 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       state.reconnectTimer = setTimeout(() => {
         state.isReconnecting = false;
         if (state.isMounted) {
-          connect();
+          try {
+            connect();
+          } catch (e) {
+            console.error("[MSEVideoStream] Reconnect failed synchronously:", e);
+            reconnect("SyncError");
+          }
         }
       }, 2000);
     };
@@ -226,8 +232,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         const threshold = document.hidden ? 15000 : dataTimeout;
 
         if (now - state.lastDataTime > threshold) {
-          // console.warn("Stall detected", now - state.lastDataTime);
-          reconnect();
+          console.warn(`[MSEVideoStream] Stall detected! Time since last data: ${now - state.lastDataTime}ms, Threshold: ${threshold}ms`);
+          reconnect("Stall");
         }
       }, 1000);
     };
@@ -318,6 +324,9 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         ) {
           state.buffer.data.set(dataView, state.buffer.length);
           state.buffer.length += dataView.byteLength;
+        } else {
+             // Buffer overflow protection or just drop?
+             // For now, let's just log it if we can't append, but don't crash
         }
       } else {
         try {
@@ -370,7 +379,18 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         wsURL = "ws" + window.location.origin.substring(4) + wsURL;
       }
 
-      const ws = new WebSocket(wsURL);
+      console.log("[MSEVideoStream] Connecting to:", wsURL);
+
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(wsURL);
+      } catch (err) {
+        console.error("[MSEVideoStream] WebSocket creation failed synchronously:", err);
+        updateError(err);
+        reconnect("WSCreationFail");
+        return;
+      }
+      
       ws.binaryType = "arraybuffer";
       state.ws = ws;
 
@@ -388,10 +408,14 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           } else if (msg.type === "error") {
             console.warn("MSE Error:", msg.value);
             updateError(msg.value);
-            reconnect();
+            reconnect("ServerMsgError");
           }
         } else {
-          appendData(ev.data);
+          try {
+             appendData(ev.data);
+          } catch(e) {
+             console.error("AppendData error", e);
+          }
         }
       };
 
@@ -399,7 +423,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         if (state.ws === ws) {
           state.ws = null;
           updateStatus("closed");
-          reconnect();
+          reconnect("WSClosed");
         }
       };
 
