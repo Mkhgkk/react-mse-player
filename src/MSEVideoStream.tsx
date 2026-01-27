@@ -19,6 +19,7 @@ export interface MSEVideoStreamProps {
   className?: string;
   style?: CSSProperties;
   dataTimeout?: number;
+  objectFit?: "fill" | "contain" | "cover" | "none" | "scale-down";
 }
 
 interface MSEBuffer {
@@ -52,6 +53,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
   className = "",
   style = {},
   dataTimeout = 3000,
+  objectFit = "contain",
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stateRef = useRef<ComponentState>({
@@ -67,7 +69,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     isReconnecting: false,
     hasReceivedData: false,
   });
-  
+
   // Track connection start time for smart reconnect delay
   const connectTSRef = useRef<number>(0);
 
@@ -97,20 +99,20 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
   // Codecs list from VideoRTC
   const codecsRef = useRef<string[]>([
-    'avc1.640029',      // H.264 high 4.1 (Chromecast 1st and 2nd Gen)
-    'avc1.64002A',      // H.264 high 4.2 (Chromecast 3rd Gen)
-    'avc1.640033',      // H.264 high 5.1 (Chromecast with Google TV)
-    'hvc1.1.6.L153.B0', // H.265 main 5.1 (Chromecast Ultra)
-    'mp4a.40.2',        // AAC LC
-    'mp4a.40.5',        // AAC HE
-    'flac',             // FLAC (PCM compatible)
-    'opus',             // OPUS Chrome, Firefox
+    "avc1.640029", // H.264 high 4.1 (Chromecast 1st and 2nd Gen)
+    "avc1.64002A", // H.264 high 4.2 (Chromecast 3rd Gen)
+    "avc1.640033", // H.264 high 5.1 (Chromecast with Google TV)
+    "hvc1.1.6.L153.B0", // H.265 main 5.1 (Chromecast Ultra)
+    "mp4a.40.2", // AAC LC
+    "mp4a.40.5", // AAC HE
+    "flac", // FLAC (PCM compatible)
+    "opus", // OPUS Chrome, Firefox
   ]);
 
   const getSupportedCodecs = (isSupported: (type: string) => boolean) => {
     return codecsRef.current
       .filter((codec) =>
-        media.includes(codec.includes("vc1") ? "video" : "audio")
+        media.includes(codec.includes("vc1") ? "video" : "audio"),
       )
       .filter((codec) => isSupported(`video/mp4; codecs="${codec}"`))
       .join();
@@ -125,14 +127,14 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
     // Helper to keep video playing in background (force play on pause)
     const handlePause = () => {
-        if (
-          document.hidden &&
-          videoRef.current &&
-          !videoRef.current.ended &&
-          videoRef.current.readyState > 2
-        ) {
-          videoRef.current.play().catch(() => {});
-        }
+      if (
+        document.hidden &&
+        videoRef.current &&
+        !videoRef.current.ended &&
+        videoRef.current.readyState > 2
+      ) {
+        videoRef.current.play().catch(() => {});
+      }
     };
 
     // Track when video actually starts playing to hide spinner
@@ -140,8 +142,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       setIsPlaying(true);
     };
 
-    videoRef.current.addEventListener('pause', handlePause);
-    videoRef.current.addEventListener('playing', handlePlaying);
+    videoRef.current.addEventListener("pause", handlePause);
+    videoRef.current.addEventListener("playing", handlePlaying);
 
     const cleanup = () => {
       if (state.reconnectTimer) {
@@ -162,7 +164,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
       if (state.ws) {
         // Prevent onclose iteration if we are manually closing
-        state.ws.onclose = null; 
+        state.ws.onclose = null;
         state.ws.close();
         state.ws = null;
       }
@@ -198,7 +200,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
     const reconnect = () => {
       if (!state.isMounted || state.isReconnecting) return;
-      
+
       state.isReconnecting = true;
       cleanup();
       updateStatus("reconnecting");
@@ -215,103 +217,113 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       if (state.stalledCheckTimer) clearInterval(state.stalledCheckTimer);
 
       state.stalledCheckTimer = setInterval(() => {
-         // Only check for stalls if we've received at least one data packet
-         if (!state.hasReceivedData || !state.lastDataTime) return;
+        // Only check for stalls if we've received at least one data packet
+        if (!state.hasReceivedData || !state.lastDataTime) return;
 
-         const now = Date.now();
-         // If background, use lenient 15s threshold to allow for browser throttling
-         // If foreground, use standard timeout (default 3s)
-         const threshold = document.hidden ? 15000 : dataTimeout;
+        const now = Date.now();
+        // If background, use lenient 15s threshold to allow for browser throttling
+        // If foreground, use standard timeout (default 3s)
+        const threshold = document.hidden ? 15000 : dataTimeout;
 
-         if (now - state.lastDataTime > threshold) {
-             // console.warn("Stall detected", now - state.lastDataTime);
-             reconnect();
-         }
+        if (now - state.lastDataTime > threshold) {
+          // console.warn("Stall detected", now - state.lastDataTime);
+          reconnect();
+        }
       }, 1000);
     };
 
     const onMSE = (ms: MediaSource, codecString: string) => {
-        if (!state.ms) return; // Cleanup happened?
+      if (!state.ms) return; // Cleanup happened?
 
-        const sb = ms.addSourceBuffer(codecString);
-        sb.mode = "segments";
+      const sb = ms.addSourceBuffer(codecString);
+      sb.mode = "segments";
 
-        state.sbUpdateHandler = () => {
-             // 1. Append pending data
-             if (!sb.updating && state.buffer.length > 0) {
-                try {
-                    const data = state.buffer.data.subarray(0, state.buffer.length);
-                    sb.appendBuffer(data as unknown as BufferSource);
-                    state.buffer.length = 0;
-                } catch(e) { /* ignore */ }
-             }
+      state.sbUpdateHandler = () => {
+        // 1. Append pending data
+        if (!sb.updating && state.buffer.length > 0) {
+          try {
+            const data = state.buffer.data.subarray(0, state.buffer.length);
+            sb.appendBuffer(data as unknown as BufferSource);
+            state.buffer.length = 0;
+          } catch (e) {
+            /* ignore */
+          }
+        }
 
-             // 2. Buffer management and smooth playback sync (VideoRTC logic)
-             if (!sb.updating && sb.buffered && sb.buffered.length > 0 && videoRef.current) {
-                 const video = videoRef.current;
-                 const end = sb.buffered.end(sb.buffered.length - 1);
-                 const start = end - 5;
-                 const start0 = sb.buffered.start(0);
+        // 2. Buffer management and smooth playback sync (VideoRTC logic)
+        if (
+          !sb.updating &&
+          sb.buffered &&
+          sb.buffered.length > 0 &&
+          videoRef.current
+        ) {
+          const video = videoRef.current;
+          const end = sb.buffered.end(sb.buffered.length - 1);
+          const start = end - 5;
+          const start0 = sb.buffered.start(0);
 
-                 // Trim everything older than 5 seconds from the end
-                 if (start > start0) {
-                     try {
-                         sb.remove(start0, start);
-                         // Set live seekable range so the browser knows where we are
-                         if (ms.setLiveSeekableRange) {
-                             ms.setLiveSeekableRange(start, end);
-                         }
-                     } catch(e) {}
-                 }
+          // Trim everything older than 5 seconds from the end
+          if (start > start0) {
+            try {
+              sb.remove(start0, start);
+              // Set live seekable range so the browser knows where we are
+              if (ms.setLiveSeekableRange) {
+                ms.setLiveSeekableRange(start, end);
+              }
+            } catch (e) {}
+          }
 
-                 // Jump forward if we fell behind the buffer window
-                 if (video.currentTime < start) {
-                     video.currentTime = start;
-                 }
+          // Jump forward if we fell behind the buffer window
+          if (video.currentTime < start) {
+            video.currentTime = start;
+          }
 
-                 // Smooth playrate adjustment
-                 const gap = end - video.currentTime;
-                 // "gap > 0.1 ? gap : 0.1" logic from VideoRTC
-                 // This effectively slows down playback if we are too close to end (to avoid stall)
-                 // And speeds up playback to match gap if we are behind.
-                 video.playbackRate = gap > 0.1 ? gap : 0.1;
-                 
-                 // Ensure we are playing
-                 if (video.paused && !video.ended && video.readyState > 2) {
-                     video.play().catch(() => {});
-                 }
-             }
-        };
+          // Smooth playrate adjustment
+          const gap = end - video.currentTime;
+          // "gap > 0.1 ? gap : 0.1" logic from VideoRTC
+          // This effectively slows down playback if we are too close to end (to avoid stall)
+          // And speeds up playback to match gap if we are behind.
+          video.playbackRate = gap > 0.1 ? gap : 0.1;
 
-        sb.addEventListener("updateend", state.sbUpdateHandler);
-        state.sb = sb;
-        updateStatus("streaming");
-        
-        // Start checking for stalls once we have the source buffer set up
-        state.lastDataTime = Date.now();
-        startStalledCheck();
+          // Ensure we are playing
+          if (video.paused && !video.ended && video.readyState > 2) {
+            video.play().catch(() => {});
+          }
+        }
+      };
+
+      sb.addEventListener("updateend", state.sbUpdateHandler);
+      state.sb = sb;
+      updateStatus("streaming");
+
+      // Start checking for stalls once we have the source buffer set up
+      state.lastDataTime = Date.now();
+      startStalledCheck();
     };
 
     const appendData = (data: ArrayBuffer) => {
-        state.lastDataTime = Date.now();
-        if (!state.hasReceivedData) {
-            state.hasReceivedData = true;
-            setHasReceivedData(true);
-        }
-        const sb = state.sb;
-        if (!sb) return;
+      state.lastDataTime = Date.now();
+      if (!state.hasReceivedData) {
+        state.hasReceivedData = true;
+        setHasReceivedData(true);
+      }
+      const sb = state.sb;
+      if (!sb) return;
 
-        if (sb.updating || state.buffer.length > 0) {
-            const dataView = new Uint8Array(data);
-             if (state.buffer.length + dataView.byteLength <= state.buffer.data.length) {
-                state.buffer.data.set(dataView, state.buffer.length);
-                state.buffer.length += dataView.byteLength;
-             }
-        } else {
-            try {
-                sb.appendBuffer(data as BufferSource);
-            } catch(e) {}
+      if (sb.updating || state.buffer.length > 0) {
+        const dataView = new Uint8Array(data);
+        if (
+          state.buffer.length + dataView.byteLength <=
+          state.buffer.data.length
+        ) {
+          state.buffer.data.set(dataView, state.buffer.length);
+          state.buffer.length += dataView.byteLength;
         }
+      } else {
+        try {
+          sb.appendBuffer(data as BufferSource);
+        } catch (e) {}
+      }
     };
 
     const setupMSE = () => {
@@ -330,7 +342,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           const codecs = getSupportedCodecs(MediaSourceClass.isTypeSupported);
           state.ws?.send(JSON.stringify({ type: "mse", value: codecs }));
         },
-        { once: true }
+        { once: true },
       );
 
       if (videoRef.current) {
@@ -402,8 +414,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     return () => {
       state.isMounted = false;
       if (videoRef.current) {
-          videoRef.current.removeEventListener('pause', handlePause);
-          videoRef.current.removeEventListener('playing', handlePlaying);
+        videoRef.current.removeEventListener("pause", handlePause);
+        videoRef.current.removeEventListener("playing", handlePlaying);
       }
       cleanup();
     };
@@ -430,6 +442,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           width: "100%",
           height: "100%",
           backgroundColor: "black",
+          objectFit: objectFit,
         }}
       />
       {(isLoading || status === "error") && (
@@ -445,7 +458,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
             gap: 12,
           }}
         >
-          {error && error.toString().toLowerCase().includes("stream not found") ? (
+          {error &&
+          error.toString().toLowerCase().includes("stream not found") ? (
             <div style={{ color: "white", fontSize: 16 }}>Stream not found</div>
           ) : error &&
             error.toString().toLowerCase().includes("connection failed") ? (
