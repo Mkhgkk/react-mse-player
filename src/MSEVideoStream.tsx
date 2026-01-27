@@ -33,6 +33,8 @@ interface ComponentState {
   sbUpdateHandler: ((this: SourceBuffer, ev: Event) => any) | null;
   buffer: MSEBuffer;
   reconnectTimer: any | null; // NodeJS.Timeout or number
+  stalledCheckTimer: any | null;
+  lastDataTime: number;
   isMounted: boolean;
   isReconnecting: boolean;
 }
@@ -48,6 +50,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
   onError,
   className = "",
   style = {},
+  dataTimeout = 3000,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stateRef = useRef<ComponentState>({
@@ -57,6 +60,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     sbUpdateHandler: null,
     buffer: { data: new Uint8Array(2 * 1024 * 1024), length: 0 },
     reconnectTimer: null,
+    stalledCheckTimer: null,
+    lastDataTime: 0,
     isMounted: true,
     isReconnecting: false,
   });
@@ -132,6 +137,10 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         clearTimeout(state.reconnectTimer);
         state.reconnectTimer = null;
       }
+      if (state.stalledCheckTimer) {
+        clearInterval(state.stalledCheckTimer);
+        state.stalledCheckTimer = null;
+      }
 
       if (state.sb && state.sbUpdateHandler) {
         try {
@@ -170,29 +179,39 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
       state.sb = null;
       state.buffer.length = 0;
+      state.lastDataTime = 0;
     };
 
     const reconnect = () => {
       if (!state.isMounted || state.isReconnecting) return;
       
-      // logic from VideoRTC: reconnect no more than once every X seconds
-      const RECONNECT_TIMEOUT = 15000;
-      const delay = Math.max(RECONNECT_TIMEOUT - (Date.now() - connectTSRef.current), 0);
-      
       state.isReconnecting = true;
       cleanup();
-      
-      // If delay is significant, show reconnecting status
-      if (delay > 500) {
-          updateStatus("reconnecting");
-      }
+      updateStatus("reconnecting");
 
       state.reconnectTimer = setTimeout(() => {
         state.isReconnecting = false;
         if (state.isMounted) {
           connect();
         }
-      }, delay);
+      }, 2000);
+    };
+
+    const startStalledCheck = () => {
+      if (state.stalledCheckTimer) clearInterval(state.stalledCheckTimer);
+      
+      state.stalledCheckTimer = setInterval(() => {
+         if (!state.lastDataTime) return;
+         const now = Date.now();
+         // If background, use lenient 15s threshold to allow for browser throttling
+         // If foreground, use standard timeout (default 3s)
+         const threshold = document.hidden ? 15000 : dataTimeout;
+         
+         if (now - state.lastDataTime > threshold) {
+             // console.warn("Stall detected", now - state.lastDataTime);
+             reconnect(); 
+         }
+      }, 1000);
     };
 
     const onMSE = (ms: MediaSource, codecString: string) => {
@@ -251,9 +270,14 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         sb.addEventListener("updateend", state.sbUpdateHandler);
         state.sb = sb;
         updateStatus("streaming");
+        
+        // Start checking for stalls once we have the source buffer set up
+        state.lastDataTime = Date.now();
+        startStalledCheck();
     };
 
     const appendData = (data: ArrayBuffer) => {
+        state.lastDataTime = Date.now();
         const sb = state.sb;
         if (!sb) return;
 
@@ -271,8 +295,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     };
 
     const setupMSE = () => {
-      const MediaSourceClass =
-        window.ManagedMediaSource || window.MediaSource;
+      const MediaSourceClass = window.ManagedMediaSource || window.MediaSource;
       if (!MediaSourceClass) {
         updateError("MediaSource not supported");
         updateStatus("error");
@@ -306,6 +329,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     const connect = () => {
       updateStatus("connecting");
       connectTSRef.current = Date.now();
+      state.lastDataTime = Date.now(); // Initialize to avoid immediate stall detection
 
       let wsURL = src;
       if (wsURL.startsWith("http")) {
@@ -330,9 +354,9 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           if (msg.type === "mse") {
             onMSE(state.ms!, msg.value);
           } else if (msg.type === "error") {
-            // updateError(msg.value);
-            // If error, maybe try to reconnect? VideoRTC doesn't explicitly invalid on error msg, but we will logs it.
             console.warn("MSE Error:", msg.value);
+            updateError(msg.value);
+            reconnect();
           }
         } else {
           appendData(ev.data);
