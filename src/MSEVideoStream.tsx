@@ -73,6 +73,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
   const [status, setStatus] = useState<string>("connecting");
   const [error, setError] = useState<any>(null);
+  const [hasReceivedData, setHasReceivedData] = useState<boolean>(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   const onStatusRef = useRef(onStatus);
   const onErrorRef = useRef(onError);
@@ -132,7 +134,14 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           videoRef.current.play().catch(() => {});
         }
     };
+
+    // Track when video actually starts playing to hide spinner
+    const handlePlaying = () => {
+      setIsPlaying(true);
+    };
+
     videoRef.current.addEventListener('pause', handlePause);
+    videoRef.current.addEventListener('playing', handlePlaying);
 
     const cleanup = () => {
       if (state.reconnectTimer) {
@@ -183,6 +192,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       state.buffer.length = 0;
       state.lastDataTime = 0;
       state.hasReceivedData = false;
+      setHasReceivedData(false);
+      setIsPlaying(false);
     };
 
     const reconnect = () => {
@@ -283,7 +294,10 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
     const appendData = (data: ArrayBuffer) => {
         state.lastDataTime = Date.now();
-        state.hasReceivedData = true;
+        if (!state.hasReceivedData) {
+            state.hasReceivedData = true;
+            setHasReceivedData(true);
+        }
         const sb = state.sb;
         if (!sb) return;
 
@@ -389,6 +403,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       state.isMounted = false;
       if (videoRef.current) {
           videoRef.current.removeEventListener('pause', handlePause);
+          videoRef.current.removeEventListener('playing', handlePlaying);
       }
       cleanup();
     };
@@ -396,7 +411,8 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
 
   const isLoading =
     status === "connecting" ||
-    status === "reconnecting";
+    status === "reconnecting" ||
+    (status === "streaming" && !isPlaying);
 
   return (
     <div
