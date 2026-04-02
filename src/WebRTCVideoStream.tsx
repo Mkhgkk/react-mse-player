@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, CSSProperties } from "react";
-import VideoShell from "./VideoShell";
+import VideoShell, { VideoLabels } from "./VideoShell";
 import { useVideoPlayer, toWsUrl } from "./useVideoPlayer";
 
 export interface WebRTCVideoStreamProps {
@@ -26,6 +26,7 @@ export interface WebRTCVideoStreamProps {
   className?: string;
   style?: CSSProperties;
   objectFit?: "fill" | "contain" | "cover" | "none" | "scale-down";
+  labels?: VideoLabels;
   debug?: boolean;
 }
 
@@ -64,6 +65,7 @@ const WebRTCVideoStream: React.FC<WebRTCVideoStreamProps> = ({
   className = "",
   style = {},
   objectFit = "contain",
+  labels,
   debug = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -307,6 +309,7 @@ const WebRTCVideoStream: React.FC<WebRTCVideoStreamProps> = ({
       isLoading={isLoading}
       status={status}
       error={error}
+      labels={labels}
     />
   );
 };

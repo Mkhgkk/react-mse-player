@@ -14,6 +14,7 @@ React components for low-latency video streaming via **MSE** and **WebRTC**. Des
 - **Broad codec support** — H.264, H.265 (HEVC), AAC, FLAC, Opus negotiated automatically.
 - **ManagedMediaSource** — iOS 17+ support (MSE).
 - **TCP-only ICE** — optional restriction for WebRTC in firewall-heavy environments.
+- **Translatable UI** — override all user-facing strings via the `labels` prop.
 
 ## Installation
 
@@ -100,6 +101,7 @@ import { WebRTCVideoStream, MSEVideoStream } from 'react-mse-player';
 | `onError` | `(error: any) => void` | — | Error callback. |
 | `className` | `string` | `''` | CSS class for the container. |
 | `style` | `CSSProperties` | `{}` | Inline styles for the container. |
+| `labels` | `VideoLabels` | see below | Override user-facing strings (for translation). |
 | `debug` | `boolean` | `false` | Log connection events to the console. |
 
 ### MSEVideoStream-only props
@@ -114,6 +116,28 @@ import { WebRTCVideoStream, MSEVideoStream } from 'react-mse-player';
 | --- | --- | --- | --- |
 | `mode` | `'webrtc' \| 'webrtc/tcp'` | `'webrtc'` | Use `'webrtc/tcp'` to restrict ICE candidates to TCP only. |
 | `pcConfig` | `RTCConfiguration` | Cloudflare + Google STUN | Override ICE servers or bundle policy. |
+
+### VideoLabels
+
+All fields are optional — omit any key to keep the English default.
+
+| Key | Default |
+| --- | --- |
+| `streamNotFound` | `"Stream not found"` |
+| `connectionFailed` | `"Connection failed"` |
+| `reconnecting` | `"Reconnecting..."` |
+
+```tsx
+import type { VideoLabels } from 'react-mse-player';
+
+const labels: VideoLabels = {
+  streamNotFound: "Flux introuvable",
+  connectionFailed: "Connexion échouée",
+  reconnecting: "Reconnexion...",
+};
+
+<WebRTCVideoStream src={url} labels={labels} />
+```
 
 ### Status values
 

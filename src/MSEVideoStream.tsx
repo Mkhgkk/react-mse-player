@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, CSSProperties } from "react";
-import VideoShell from "./VideoShell";
+import VideoShell, { VideoLabels } from "./VideoShell";
 import { useVideoPlayer, toWsUrl } from "./useVideoPlayer";
 
 // Add support for non-standard ManagedMediaSource
@@ -22,6 +22,7 @@ export interface MSEVideoStreamProps {
   style?: CSSProperties;
   dataTimeout?: number;
   objectFit?: "fill" | "contain" | "cover" | "none" | "scale-down";
+  labels?: VideoLabels;
   debug?: boolean;
 }
 
@@ -57,6 +58,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
   style = {},
   dataTimeout = 10000,
   objectFit = "contain",
+  labels,
   debug = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -419,6 +421,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       isLoading={isLoading}
       status={status}
       error={error}
+      labels={labels}
     />
   );
 };
