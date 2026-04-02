@@ -163,6 +163,32 @@ const labels: VideoLabels = {
 | iOS Safari 17.1+ | ✅ | ✅ |
 | iOS Safari < 17 | ❌ | ✅ |
 
+## Development
+
+### Running tests
+
+```bash
+# Run tests in watch mode
+npm test
+
+# Run tests once (CI)
+npm run test:run
+```
+
+Tests use [Vitest](https://vitest.dev/) with [Testing Library](https://testing-library.com/) and cover:
+
+- `toWsUrl` URL conversion utility
+- `useVideoPlayer` hook (status, error, and isPlaying state)
+- `VideoShell` component (loading states, error messages, custom labels)
+- `MSEVideoStream` component (WebSocket lifecycle, MediaSource setup, reconnection)
+- `WebRTCVideoStream` component (signalling, offer/answer exchange, ICE candidates)
+
+### Building
+
+```bash
+npm run build
+```
+
 ## License
 
 MIT
