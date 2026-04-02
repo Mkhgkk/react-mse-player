@@ -2,16 +2,18 @@
 
 [![CI](https://github.com/Mkhgkk/react-mse-player/actions/workflows/ci.yml/badge.svg)](https://github.com/Mkhgkk/react-mse-player/actions/workflows/ci.yml) [![NPM Version](https://img.shields.io/npm/v/react-mse-player)](https://www.npmjs.com/package/react-mse-player) [![NPM Downloads](https://img.shields.io/npm/dm/react-mse-player)](https://www.npmjs.com/package/react-mse-player) [![License](https://img.shields.io/npm/l/react-mse-player)](https://github.com/Mkhgkk/react-mse-player)
 
-A strict, type-safe React component for streaming low-latency video using Media Source Extensions (MSE). Designed for seamless integration with [go2rtc](https://github.com/AlexxIT/go2rtc).
+React components for low-latency video streaming via **MSE** and **WebRTC**. Designed for [go2rtc](https://github.com/AlexxIT/go2rtc).
 
 ## Features
 
-- **Media Source Extensions (MSE)**: Low-latency streaming directly in the browser.
-- **Robust Connection Management**: Automatic reconnection handling with exponential backoff and stall detection.
-- **Type-Safe**: Full TypeScript support with comprehensive type definitions.
-- **Smart Buffering**: Internal buffer queueing and automatic memory trimming to prevent quota errors.
-- **Broad Codec Support**: automatic negotiation for H.264, H.265 (HEVC), AAC, FLAC, and Opus.
-- **ManagedMediaSource**: Support for iOS 17+ via ManagedMediaSource API.
+- **MSEVideoStream** — low-latency streaming over WebSocket using Media Source Extensions.
+- **WebRTCVideoStream** — ultra-low-latency streaming via WebRTC with WebSocket signalling.
+- **Automatic reconnection** with stall detection and smart backoff.
+- **Full TypeScript support** with comprehensive type definitions.
+- **Smart buffering** — internal queue and automatic memory trimming to prevent quota errors (MSE).
+- **Broad codec support** — H.264, H.265 (HEVC), AAC, FLAC, Opus negotiated automatically.
+- **ManagedMediaSource** — iOS 17+ support (MSE).
+- **TCP-only ICE** — optional restriction for WebRTC in firewall-heavy environments.
 
 ## Installation
 
@@ -23,75 +25,119 @@ yarn add react-mse-player
 
 ## Usage
 
-### Basic Usage
+### MSE
 
 ```tsx
-import React from 'react';
 import { MSEVideoStream } from 'react-mse-player';
 
-const Player = () => {
-  return (
-    <div style={{ width: '640px', aspectRatio: '16/9' }}>
-      <MSEVideoStream 
-        src="ws://localhost:1984/api/ws?src=camera1" 
-      />
-    </div>
-  );
-};
+<MSEVideoStream src="ws://localhost:1984/api/ws?src=camera1" />
 ```
 
-### Advanced Usage with TypeScript
+### WebRTC
 
 ```tsx
-import React, { useCallback } from 'react';
-import { MSEVideoStream } from 'react-mse-player';
+import { WebRTCVideoStream } from 'react-mse-player';
 
-const AdvancedPlayer = () => {
-  const handleStatus = useCallback((status: string) => {
-    // status: 'connecting' | 'open' | 'streaming' | 'closed' | 'error' | 'stalled' | 'reconnecting'
-    console.log('[Player Status]', status);
-  }, []);
+<WebRTCVideoStream src="ws://localhost:1984/api/ws?src=camera1" />
+```
 
-  const handleError = useCallback((error: any) => {
-    console.error('[Player Error]', error);
-  }, []);
+> Both components accept a `ws://` or `wss://` URL. HTTP/HTTPS URLs are converted automatically. Relative paths (`/api/ws?src=...`) are also supported.
 
-  return (
-    <MSEVideoStream
-      src="ws://localhost:1984/api/ws?src=camera1"
-      autoPlay={true}
-      controls={false}
-      media="video,audio"
-      onStatus={handleStatus}
-      onError={handleError}
-      className="custom-player-class"
-      style={{ width: '100%', height: '100%' }}
-    />
-  );
-};
+### Choosing between MSE and WebRTC
+
+| | MSE | WebRTC |
+| --- | --- | --- |
+| Latency | ~1–3 s | < 500 ms |
+| Safari iOS | 17+ only | 11+ |
+| Firewall-friendly | Yes (WS) | Needs STUN/TURN |
+| Audio/Video sync | Good | Excellent |
+
+Use **WebRTC** when latency matters most. Use **MSE** as a fallback for broader compatibility.
+
+### Advanced example
+
+```tsx
+import { WebRTCVideoStream, MSEVideoStream } from 'react-mse-player';
+
+// WebRTC with custom ICE servers and TCP-only mode
+<WebRTCVideoStream
+  src="ws://localhost:1984/api/ws?src=camera1"
+  mode="webrtc/tcp"
+  pcConfig={{
+    iceServers: [{ urls: 'turn:my-turn-server.com', username: 'user', credential: 'pass' }],
+  }}
+  media="video,audio"
+  onStatus={(s) => console.log(s)}
+  onError={(e) => console.error(e)}
+  debug
+/>
+
+// MSE with stall detection timeout
+<MSEVideoStream
+  src="ws://localhost:1984/api/ws?src=camera1"
+  dataTimeout={5000}
+  media="video,audio"
+  onStatus={(s) => console.log(s)}
+  onError={(e) => console.error(e)}
+  debug
+/>
 ```
 
 ## Props
 
+### Shared props (both components)
+
 | Prop | Type | Default | Description |
-|------|------|---------|-------------|
-| `src` | `string` | **Required** | WebSocket URL for the stream (e.g., `ws://...` or `/api/ws...`). |
-| `width` | `string \| number` | `'100%'` | Width of the container. |
-| `height` | `string \| number` | `'100%'` | Height of the container. |
-| `autoPlay` | `boolean` | `true` | Whether to start playback automatically. |
+| --- | --- | --- | --- |
+| `src` | `string` | **Required** | WebSocket URL (`ws://`, `wss://`, relative `/` path, or `http(s)://` auto-converted). |
+| `width` | `string \| number` | `'100%'` | Container width. |
+| `height` | `string \| number` | `'100%'` | Container height. |
+| `autoPlay` | `boolean` | `true` | Start playback automatically. |
 | `controls` | `boolean` | `false` | Show native video controls. |
-| `media` | `string` | `'video,audio'` | Media types to negotiate (`'video'`, `'audio'`, or `'video,audio'`). |
-| `onStatus` | `(status: string) => void` | `undefined` | Callback for connection status updates. |
-| `onError` | `(error: any) => void` | `undefined` | Callback for errors. |
+| `media` | `string` | `'video,audio'` | Requested tracks: `'video'`, `'audio'`, or `'video,audio'`. |
+| `objectFit` | `string` | `'contain'` | CSS `object-fit` for the video element. |
+| `onStatus` | `(status: string) => void` | — | Status change callback. |
+| `onError` | `(error: any) => void` | — | Error callback. |
 | `className` | `string` | `''` | CSS class for the container. |
-| `style` | `React.CSSProperties` | `{}` | Inline styles for the container. |
+| `style` | `CSSProperties` | `{}` | Inline styles for the container. |
+| `debug` | `boolean` | `false` | Log connection events to the console. |
+
+### MSEVideoStream-only props
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `dataTimeout` | `number` | `10000` | Milliseconds without data before triggering a reconnect. |
+
+### WebRTCVideoStream-only props
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | `'webrtc' \| 'webrtc/tcp'` | `'webrtc'` | Use `'webrtc/tcp'` to restrict ICE candidates to TCP only. |
+| `pcConfig` | `RTCConfiguration` | Cloudflare + Google STUN | Override ICE servers or bundle policy. |
+
+### Status values
+
+| Status | Description |
+| --- | --- |
+| `connecting` | Opening the WebSocket connection. |
+| `open` | WebSocket connected, negotiating stream. |
+| `streaming` | *(MSE)* Data flowing, buffer active. |
+| `connected` | *(WebRTC)* Peer connection established. |
+| `reconnecting` | Connection lost, waiting to retry. |
+| `closed` | Connection closed. |
+| `error` | Unrecoverable error. |
 
 ## Browser Support
 
-- **Chromium-based** (Chrome, Edge, Brave): Full support.
-- **Firefox**: Full support.
-- **Safari**: Supported on version 17+ via `ManagedMediaSource`.
-- **Mobile**: Supported on Android (Chrome/Firefox) and iOS 17.1+ (Safari).
+| Browser | MSE | WebRTC |
+| --- | --- | --- |
+| Chrome / Edge / Brave | ✅ | ✅ |
+| Firefox | ✅ | ✅ |
+| Safari 17+ | ✅ (ManagedMediaSource) | ✅ |
+| Safari < 17 | ❌ | ✅ (11+) |
+| Android (Chrome) | ✅ | ✅ |
+| iOS Safari 17.1+ | ✅ | ✅ |
+| iOS Safari < 17 | ❌ | ✅ |
 
 ## License
 

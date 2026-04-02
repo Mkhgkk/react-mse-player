@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState, CSSProperties } from "react";
+import VideoShell from "./VideoShell";
+import { useVideoPlayer, toWsUrl } from "./useVideoPlayer";
 
 // Add support for non-standard ManagedMediaSource
 declare global {
@@ -34,7 +36,7 @@ interface ComponentState {
   sb: SourceBuffer | null;
   sbUpdateHandler: ((this: SourceBuffer, ev: Event) => any) | null;
   buffer: MSEBuffer;
-  reconnectTimer: any | null; // NodeJS.Timeout or number
+  reconnectTimer: any | null;
   stalledCheckTimer: any | null;
   lastDataTime: number;
   isMounted: boolean;
@@ -75,29 +77,10 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
   // Track connection start time for smart reconnect delay
   const connectTSRef = useRef<number>(0);
 
-  const [status, setStatus] = useState<string>("connecting");
-  const [error, setError] = useState<any>(null);
-  const [hasReceivedData, setHasReceivedData] = useState<boolean>(false);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [, setHasReceivedData] = useState<boolean>(false);
 
-  const onStatusRef = useRef(onStatus);
-  const onErrorRef = useRef(onError);
-
-  useEffect(() => {
-    onStatusRef.current = onStatus;
-  }, [onStatus]);
-  useEffect(() => {
-    onErrorRef.current = onError;
-  }, [onError]);
-
-  const updateStatus = (s: string) => {
-    setStatus(s);
-    onStatusRef.current?.(s);
-  };
-  const updateError = (e: any) => {
-    setError(e);
-    onErrorRef.current?.(e);
-  };
+  const { status, error, isPlaying, setIsPlaying, updateStatus, updateError } =
+    useVideoPlayer(onStatus, onError);
 
   // Codecs list from VideoRTC
   const codecsRef = useRef<string[]>([
@@ -139,10 +122,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       }
     };
 
-    // Track when video actually starts playing to hide spinner
-    const handlePlaying = () => {
-      setIsPlaying(true);
-    };
+    const handlePlaying = () => setIsPlaying(true);
 
     videoRef.current.addEventListener("pause", handlePause);
     videoRef.current.addEventListener("playing", handlePlaying);
@@ -165,7 +145,6 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       }
 
       if (state.ws) {
-        // Prevent onclose iteration if we are manually closing
         state.ws.onclose = null;
         state.ws.close();
         state.ws = null;
@@ -225,12 +204,9 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       if (state.stalledCheckTimer) clearInterval(state.stalledCheckTimer);
 
       state.stalledCheckTimer = setInterval(() => {
-        // Only check for stalls if we've received at least one data packet
         if (!state.hasReceivedData || !state.lastDataTime) return;
 
         const now = Date.now();
-        // If background, use lenient 15s threshold to allow for browser throttling
-        // If foreground, use standard timeout (default 3s)
         const threshold = document.hidden ? 15000 : dataTimeout;
 
         if (now - state.lastDataTime > threshold) {
@@ -241,13 +217,12 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     };
 
     const onMSE = (ms: MediaSource, codecString: string) => {
-      if (!state.ms) return; // Cleanup happened?
+      if (!state.ms) return;
 
       const sb = ms.addSourceBuffer(codecString);
       sb.mode = "segments";
 
       state.sbUpdateHandler = () => {
-        // 1. Append pending data
         if (!sb.updating && state.buffer.length > 0) {
           try {
             const data = state.buffer.data.subarray(0, state.buffer.length);
@@ -258,7 +233,6 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           }
         }
 
-        // 2. Buffer management and smooth playback sync (VideoRTC logic)
         if (
           !sb.updating &&
           sb.buffered &&
@@ -270,30 +244,22 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           const start = end - 5;
           const start0 = sb.buffered.start(0);
 
-          // Trim everything older than 5 seconds from the end
           if (start > start0) {
             try {
               sb.remove(start0, start);
-              // Set live seekable range so the browser knows where we are
               if (ms.setLiveSeekableRange) {
                 ms.setLiveSeekableRange(start, end);
               }
             } catch (e) {}
           }
 
-          // Jump forward if we fell behind the buffer window
           if (video.currentTime < start) {
             video.currentTime = start;
           }
 
-          // Smooth playrate adjustment
           const gap = end - video.currentTime;
-          // "gap > 0.1 ? gap : 0.1" logic from VideoRTC
-          // This effectively slows down playback if we are too close to end (to avoid stall)
-          // And speeds up playback to match gap if we are behind.
           video.playbackRate = gap > 0.1 ? gap : 0.1;
 
-          // Ensure we are playing
           if (video.paused && !video.ended && video.readyState > 2) {
             video.play().catch(() => {});
           }
@@ -304,7 +270,6 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       state.sb = sb;
       updateStatus("streaming");
 
-      // Start checking for stalls once we have the source buffer set up
       state.lastDataTime = Date.now();
       startStalledCheck();
     };
@@ -326,9 +291,6 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         ) {
           state.buffer.data.set(dataView, state.buffer.length);
           state.buffer.length += dataView.byteLength;
-        } else {
-             // Buffer overflow protection or just drop?
-             // For now, let's just log it if we can't append, but don't crash
         }
       } else {
         try {
@@ -364,7 +326,6 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           videoRef.current.src = URL.createObjectURL(state.ms);
           videoRef.current.srcObject = null;
         }
-        // Ensure play is called
         videoRef.current.play().catch(() => {});
       }
     };
@@ -372,15 +333,9 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     const connect = () => {
       updateStatus("connecting");
       connectTSRef.current = Date.now();
-      state.lastDataTime = Date.now(); // Initialize to avoid immediate stall detection
+      state.lastDataTime = Date.now();
 
-      let wsURL = src;
-      if (wsURL.startsWith("http")) {
-        wsURL = "ws" + wsURL.substring(4);
-      } else if (wsURL.startsWith("/")) {
-        wsURL = "ws" + window.location.origin.substring(4) + wsURL;
-      }
-
+      const wsURL = toWsUrl(src);
       if (debug) console.log("[MSEVideoStream] Connecting to:", wsURL);
 
       let ws: WebSocket;
@@ -392,7 +347,7 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
         reconnect("WSCreationFail");
         return;
       }
-      
+
       ws.binaryType = "arraybuffer";
       state.ws = ws;
 
@@ -408,15 +363,15 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
           if (msg.type === "mse") {
             onMSE(state.ms!, msg.value);
           } else if (msg.type === "error") {
-             if (debug) console.warn("MSE Error:", msg.value);
+            if (debug) console.warn("MSE Error:", msg.value);
             updateError(msg.value);
             reconnect("ServerMsgError");
           }
         } else {
           try {
-             appendData(ev.data);
-          } catch(e) {
-             if (debug) console.error("AppendData error", e);
+            appendData(ev.data);
+          } catch (e) {
+            if (debug) console.error("AppendData error", e);
           }
         }
       };
@@ -430,7 +385,6 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
       };
 
       ws.onerror = () => {
-        // VideoRTC mostly handles onclose for reconnect logic
         updateError("Connection failed");
       };
     };
@@ -453,70 +407,19 @@ const MSEVideoStream: React.FC<MSEVideoStreamProps> = ({
     (status === "streaming" && !isPlaying);
 
   return (
-    <div
+    <VideoShell
+      videoRef={videoRef}
+      width={width}
+      height={height}
+      controls={controls}
+      autoPlay={autoPlay}
+      objectFit={objectFit}
       className={className}
-      style={{ position: "relative", width, height, ...style }}
-    >
-      <video
-        ref={videoRef}
-        controls={controls}
-        playsInline
-        muted
-        autoPlay={autoPlay}
-        style={{
-          display: "block",
-          width: "100%",
-          height: "100%",
-          backgroundColor: "black",
-          objectFit: objectFit,
-        }}
-      />
-      {(isLoading || status === "error") && (
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 12,
-          }}
-        >
-          {error &&
-          error.toString().toLowerCase().includes("stream not found") ? (
-            <div style={{ color: "white", fontSize: 16 }}>Stream not found</div>
-          ) : error &&
-            error.toString().toLowerCase().includes("connection failed") ? (
-            <div style={{ color: "white", fontSize: 16 }}>
-              Connection failed
-            </div>
-          ) : status === "error" ? (
-            <div style={{ color: "white", fontSize: 16 }}>{error}</div>
-          ) : (
-            <>
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  border: "4px solid rgba(255,255,255,0.3)",
-                  borderTop: "4px solid white",
-                  borderRadius: "50%",
-                  animation: "spin 1s linear infinite",
-                }}
-              />
-              {status === "reconnecting" && (
-                <div style={{ color: "white", fontSize: 16 }}>
-                  Reconnecting...
-                </div>
-              )}
-            </>
-          )}
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
-    </div>
+      style={style}
+      isLoading={isLoading}
+      status={status}
+      error={error}
+    />
   );
 };
 

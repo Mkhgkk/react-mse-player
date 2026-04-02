@@ -56,6 +56,34 @@ h1 {
   background: #0060da;
 }
 
+.mode-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 10px;
+  background: #222;
+  border: 1px solid #333;
+  color: #aaa;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-btn:hover {
+  background: #2a2a2a;
+  color: #eee;
+}
+
+.mode-btn.active {
+  background: #0070f3;
+  border-color: #0070f3;
+  color: white;
+}
+
 .player-wrapper {
   background: black;
   aspect-ratio: 16/9;
